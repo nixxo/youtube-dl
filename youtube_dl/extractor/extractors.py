@@ -915,6 +915,11 @@ from .raywenderlich import (
     RayWenderlichCourseIE,
 )
 from .rbmaradio import RBMARadioIE
+from .rcs import (
+    CorriereIE,
+    GazzettaIE,
+    RCSIE,
+)
 from .rds import RDSIE
 from .redbulltv import (
     RedBullTVIE,
