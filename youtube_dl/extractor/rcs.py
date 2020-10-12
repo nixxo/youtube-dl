@@ -8,10 +8,14 @@ from var_dump import var_dump
 from .common import InfoExtractor
 from ..utils import (
     js_to_json,
+    orderedSet,
+    base_url,
+    url_basename,
+    urljoin,
 )
 
 
-class RCScdnIE(InfoExtractor):
+class RCSIE(InfoExtractor):
     _ALL_REPLACE = {
         'media2vam.corriere.it.edgesuite.net':
             'media2vam-corriere-it.akamaized.net',
@@ -183,7 +187,6 @@ class RCScdnIE(InfoExtractor):
 
     def _create_formats(self, urls, video_id):
         formats = []
-
         formats = self._extract_m3u8_formats(
             urls['m3u8'], video_id, 'mp4', entry_protocol='m3u8_native',
             m3u8_id='hls', fatal=False)
@@ -193,10 +196,27 @@ class RCScdnIE(InfoExtractor):
                 'format_id': 'http-mp4',
                 'url': urls['mp4']
             })
-
         self._sort_formats(formats)
-
         return formats
+
+    @staticmethod
+    def _sanitize_urls(urls):
+        # clean iframes urls
+        for i, e in enumerate(urls):
+            urls[i] = urljoin(base_url(e), url_basename(e))
+        return urls
+
+    @staticmethod
+    def _extract_urls(webpage):
+        classes = [RCSEmbedsIE, GazzettaIE, CorriereIE]
+        for c in classes:
+            url = c._extract_url(webpage)
+            if url:
+                return {
+                    'ie_key': c.ie_key(),
+                    'url': url
+                }
+        return None
 
     def _real_extract(self, url):
         video_id = self._match_id(url)
@@ -204,12 +224,9 @@ class RCScdnIE(InfoExtractor):
 
         # if no cdn found look for some iframes
         if not mobj['cdn']:
-            classes = [RCSIE, GazzettaIE, CorriereIE]
             webpage = self._download_webpage(url, video_id)
-            for c in classes:
-                url = c._extract_url(webpage)
-                if url:
-                    return self.url_result(url, ie=c.ie_key())
+            data = self._extract_urls(webpage)
+            return self.url_result(data['url'], ie=data['ie_key']) if data else None
 
         nurl = 'https://video.%s/video-embed/%s' % (mobj['cdn'], video_id)
         page = self._download_webpage(nurl, video_id)
@@ -228,24 +245,12 @@ class RCScdnIE(InfoExtractor):
         }
 
 
-class RCSIE(RCScdnIE):
+class RCSEmbedsIE(RCSIE):
     IE_NAME = 'rcs:rcs'
     _VALID_URL = r'''(?x)
-                    https?://
-                    (?:
-                        video\.(?P<cdn>rcs\.it)|
-                        (?:www\.)?
-                            (?P<ie>
-                                iodonna|
-                                amica|
-                                stylepiccoli|
-                                style\.corriere|
-                                living.corriere|
-                                oggi|
-                                corsedimoto
-                            )\.(?:it|com)
-                        )/video[\w\W]*?(?:/|\?)(?P<id>[^/=&]+(?=\?|/$|$))'''
-    _TESTS = {
+                    https?://video\.(?P<cdn>rcs\.it)
+                    /video[\w\W]*?(?:/|\?)(?P<id>[^/=&]+(?=\?|/$|$))'''
+    _TESTS = [{
         'url': 'https://video.rcs.it/video-embed/iodonna-0001585037',
         'md5': '623ecc8ffe7299b2d0c1046d8331a9df',
         'info_dict': {
@@ -255,39 +260,10 @@ class RCSIE(RCScdnIE):
             'description': 'md5:d41d8cd98f00b204e9800998ecf8427e',
             'uploader': 'rcs.it',
         }
-    }, {
-        'url': 'https://www.iodonna.it/video-iodonna/personaggi-video/sky-arte-racconta-madonna-nella-serie-artist-to-icon/',
-        'md5': '623ecc8ffe7299b2d0c1046d8331a9df',
-        'info_dict': {
-            'id': 'iodonna-0001585037',
-            'ext': 'mp4',
-            'title': 'Sky Arte racconta Madonna nella serie "Artist to icon" - Video iO Donna',
-            'description': 'md5:d41d8cd98f00b204e9800998ecf8427e',
-            'uploader': 'rcs.it',
-        }
-    }, {
-        'url': 'https://www.amica.it/video-post/oscar-2020-renee-zellweger-judy/',
-        'md5': '82d09e690b8fffa147f4b7bcf2ffb42c',
-        'info_dict': {
-            'id': 'amica-0000920309',
-            'ext': 'mp4',
-            'title': 'Oscar 2020 miglior attrice: Renée Zellweger racconta Judy in esclusiva | Video Amica',
-            'description': 'md5:d41d8cd98f00b204e9800998ecf8427e',
-            'uploader': 'rcs.it',
-        }
-    }, {
-        'url': 'https://www.corsedimoto.com/video/videotv/video-portimao-new-circuit-motogp-here-riders-fly/',
-        'md5': '82de087a67be8dfe586e27cd7694c2e6',
-        'info_dict': {
-            'id': 'gazzanet-mo05-0000268701',
-            'ext': 'mp4',
-            'title': 'MotoGP, Portimao la novità: qui i piloti prendono il volo (VIDEO)',
-            'uploader': 'rcd',
-        }
-    }
+    }]
 
     @staticmethod
-    def _extract_url(webpage):
+    def _extract_urls(webpage):
         entries = [
             mobj.group('url')
             for mobj in re.finditer(r'''(?x)
@@ -298,10 +274,15 @@ class RCSIE(RCScdnIE):
             (["\'])
                 (?P<url>(?:https?:)//video\.rcs\.it/video-embed/.+?)
             \1''', webpage)]
-        return entries[0] if entries else None
+        return RCSIE._sanitize_urls(entries)
+
+    @staticmethod
+    def _extract_url(webpage):
+        urls = RCSEmbedsIE._extract_urls(webpage)
+        return urls[0] if urls else None
 
 
-class CorriereIE(RCScdnIE):
+class CorriereIE(RCSIE):
     IE_NAME = 'rcs:corriere'
     _VALID_URL = r'''(?x)https?://video\.
                     (?:
@@ -311,7 +292,7 @@ class CorriereIE(RCScdnIE):
                         corrierefiorentino\.
                     )?
                     (?P<cdn>corriere\.it)/(?:.+?)/(?P<id>[^/]+?)(?:$|\?)'''
-    _TESTS = {
+    _TESTS = [{
         'url': 'https://video.corriere.it/sport/formula-1/vettel-guida-ferrari-sf90-mugello-suo-fianco-c-elecrerc-bendato-video-esilarante/b727632a-f9d0-11ea-91b0-38d50a849abb',
         'md5': '0f4ededc202b0f00b6e509d831e2dcda',
         'info_dict': {
@@ -327,10 +308,10 @@ class CorriereIE(RCScdnIE):
     }, {
         'url': 'https://video.corriere.it/video-360/metro-copenaghen-tutta-italiana/a248a7f0-e2db-11e9-9830-af2de6b1f945',
         'match_only': True
-    }
+    }]
 
     @staticmethod
-    def _extract_url(webpage):
+    def _extract_urls(webpage):
         entries = [
             mobj.group('url')
             for mobj in re.finditer(r'''(?x)
@@ -341,13 +322,18 @@ class CorriereIE(RCScdnIE):
             (["\'])
                 (?P<url>(?:https?:)//video\.(corriere.+\.)?corriere\.it/video-embed/.+?)
             \1''', webpage)]
-        return entries[0] if entries else None
+        return RCSIE._sanitize_urls(entries)
+
+    @staticmethod
+    def _extract_url(webpage):
+        urls = CorriereIE._extract_urls(webpage)
+        return urls[0] if urls else None
 
 
-class GazzettaIE(RCScdnIE):
+class GazzettaIE(RCSIE):
     IE_NAME = 'rcs:gazzetta'
     _VALID_URL = r'https?://video\.(?P<cdn>(?:gazzanet\.)?gazzetta\.it)/(?:.+?)/(?P<id>[^/]+?)(?:$|\?)'
-    _TESTS = {
+    _TESTS = [{
         'url': 'https://video.gazzetta.it/video-motogp-catalogna-cadute-dovizioso-vale-rossi/49612410-00ca-11eb-bcd8-30d4253e0140?vclk=Videobar',
         'md5': 'eedc1b5defd18e67383afef51ff7bdf9',
         'info_dict': {
@@ -363,10 +349,10 @@ class GazzettaIE(RCScdnIE):
     }, {
         'url': 'https://video.gazzanet.gazzetta.it/video-embed/gazzanet-mo05-0000260789',
         'match_only': True
-    }
+    }]
 
     @staticmethod
-    def _extract_url(webpage):
+    def _extract_urls(webpage):
         entries = [
             mobj.group('url')
             for mobj in re.finditer(r'''(?x)
@@ -377,6 +363,11 @@ class GazzettaIE(RCScdnIE):
             (["\'])
                 (?P<url>(?:https?:)//video\.(?:gazzanet\.)?gazzetta\.it/video-embed/.+?)
             \1''', webpage)]
-        return entries[0] if entries else None
+        return RCSIE._sanitize_urls(entries)
+
+    @staticmethod
+    def _extract_url(webpage):
+        urls = GazzettaIE._extract_urls(webpage)
+        return urls[0] if urls else None
 
 # TODO: youreporter, leitv

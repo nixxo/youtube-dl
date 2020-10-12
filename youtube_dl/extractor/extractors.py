@@ -918,7 +918,7 @@ from .rbmaradio import RBMARadioIE
 from .rcs import (
     CorriereIE,
     GazzettaIE,
-    RCSIE,
+    RCSEmbedsIE,
 )
 from .rds import RDSIE
 from .redbulltv import (
