@@ -3,12 +3,10 @@ from __future__ import unicode_literals
 
 import re
 
-from var_dump import var_dump
-
 from .common import InfoExtractor
 from ..utils import (
+    ExtractorError,
     js_to_json,
-    orderedSet,
     base_url,
     url_basename,
     urljoin,
@@ -199,40 +197,36 @@ class RCSIE(InfoExtractor):
         self._sort_formats(formats)
         return formats
 
-    @staticmethod
-    def _sanitize_urls(urls):
-        # clean iframes urls
-        for i, e in enumerate(urls):
-            urls[i] = urljoin(base_url(e), url_basename(e))
-        return urls
-
-    @staticmethod
-    def _extract_urls(webpage):
-        classes = [RCSEmbedsIE, GazzettaIE, CorriereIE]
-        for c in classes:
-            url = c._extract_url(webpage)
-            if url:
-                return {
-                    'ie_key': c.ie_key(),
-                    'url': url
-                }
-        return None
-
     def _real_extract(self, url):
         video_id = self._match_id(url)
         mobj = re.search(self._VALID_URL, url).groupdict()
 
-        # if no cdn found look for some iframes
         if not mobj['cdn']:
-            webpage = self._download_webpage(url, video_id)
-            data = self._extract_urls(webpage)
-            return self.url_result(data['url'], ie=data['ie_key']) if data else None
+            raise ExtractorError('CDN not found in url: %s' % url)
 
-        nurl = 'https://video.%s/video-embed/%s' % (mobj['cdn'], video_id)
-        page = self._download_webpage(nurl, video_id)
-        video_data = self._parse_json(self._search_regex(
-            r'[\s;]video\s*=\s*({[\s\S]+?})(?:;|,playlist=)', page, video_id),
-            video_id, transform_source=js_to_json)
+        # for leitv don't use the embed page
+        if mobj['cdn'] != 'leitv.it':
+            url = 'https://video.%s/video-embed/%s' % (mobj['cdn'], video_id)
+
+        page = self._download_webpage(url, video_id)
+
+        # look for json video data url
+        json = self._search_regex(
+            r'var url = "(//video\.rcs\.it/fragment-includes/video-includes/.+?\.json)";',
+            page, video_id, default=None)
+        if json:
+            json = 'https:%s' % json
+            video_data = self._download_json(json, video_id)
+
+        # if url not found, look for json video data directly in the page
+        else:
+            video_data = self._parse_json(self._search_regex(
+                r'[\s;]video\s*=\s*({[\s\S]+?})(?:;|,playlist=)', page, video_id),
+                video_id, transform_source=js_to_json)
+
+        if not video_data:
+            raise ExtractorError('Video data not found in the page')
+
         formats = self._create_formats(
             self._get_video_src(video_data), video_id)
 
@@ -248,8 +242,13 @@ class RCSIE(InfoExtractor):
 class RCSEmbedsIE(RCSIE):
     IE_NAME = 'rcs:rcs'
     _VALID_URL = r'''(?x)
-                    https?://video\.(?P<cdn>rcs\.it)
-                    /video[\w\W]*?(?:/|\?)(?P<id>[^/=&]+(?=\?|/$|$))'''
+                    https?://video\.(?P<cdn>
+                    (?:
+                        rcs|
+                        (?:corriere\w+\.)?corriere|
+                        (?:gazzanet\.)?gazzetta
+                    )\.it)
+                    /video-embed/(?P<id>[^/=&\?]+?)(?:$|\?)'''
     _TESTS = [{
         'url': 'https://video.rcs.it/video-embed/iodonna-0001585037',
         'md5': '623ecc8ffe7299b2d0c1046d8331a9df',
@@ -260,7 +259,20 @@ class RCSEmbedsIE(RCSIE):
             'description': 'md5:d41d8cd98f00b204e9800998ecf8427e',
             'uploader': 'rcs.it',
         }
+    }, {
+        'url': 'https://video.corriere.it/video-embed/b727632a-f9d0-11ea-91b0-38d50a849abb?player',
+        'match_only': True
+    }, {
+        'url': 'https://video.gazzetta.it/video-embed/49612410-00ca-11eb-bcd8-30d4253e0140',
+        'match_only': True
     }]
+
+    @staticmethod
+    def _sanitize_urls(urls):
+        # clean iframes urls
+        for i, e in enumerate(urls):
+            urls[i] = urljoin(base_url(e), url_basename(e))
+        return urls
 
     @staticmethod
     def _extract_urls(webpage):
@@ -272,9 +284,15 @@ class RCSEmbedsIE(RCSIE):
                 <iframe[^\n]+src=
             )
             (["\'])
-                (?P<url>(?:https?:)//video\.rcs\.it/video-embed/.+?)
+                (?P<url>(?:https?:)//video\.
+                    (?:
+                        rcs|
+                        (?:corriere\w+\.)?corriere|
+                        (?:gazzanet\.)?gazzetta
+                    )
+                \.it/video-embed/.+?)
             \1''', webpage)]
-        return RCSIE._sanitize_urls(entries)
+        return RCSEmbedsIE._sanitize_urls(entries)
 
     @staticmethod
     def _extract_url(webpage):
@@ -285,13 +303,14 @@ class RCSEmbedsIE(RCSIE):
 class CorriereIE(RCSIE):
     IE_NAME = 'rcs:corriere'
     _VALID_URL = r'''(?x)https?://video\.
+                    (?P<cdn>
                     (?:
                         corrieredelmezzogiorno\.|
                         corrieredelveneto\.|
                         corrieredibologna\.|
                         corrierefiorentino\.
                     )?
-                    (?P<cdn>corriere\.it)/(?:.+?)/(?P<id>[^/]+?)(?:$|\?)'''
+                    corriere\.it)/(?:.+?)/(?P<id>[^/]+?)(?:$|\?)'''
     _TESTS = [{
         'url': 'https://video.corriere.it/sport/formula-1/vettel-guida-ferrari-sf90-mugello-suo-fianco-c-elecrerc-bendato-video-esilarante/b727632a-f9d0-11ea-91b0-38d50a849abb',
         'md5': '0f4ededc202b0f00b6e509d831e2dcda',
@@ -309,25 +328,6 @@ class CorriereIE(RCSIE):
         'url': 'https://video.corriere.it/video-360/metro-copenaghen-tutta-italiana/a248a7f0-e2db-11e9-9830-af2de6b1f945',
         'match_only': True
     }]
-
-    @staticmethod
-    def _extract_urls(webpage):
-        entries = [
-            mobj.group('url')
-            for mobj in re.finditer(r'''(?x)
-            (?:
-                data-frame-src=|
-                <iframe[^\n]+src=
-            )
-            (["\'])
-                (?P<url>(?:https?:)//video\.(corriere.+\.)?corriere\.it/video-embed/.+?)
-            \1''', webpage)]
-        return RCSIE._sanitize_urls(entries)
-
-    @staticmethod
-    def _extract_url(webpage):
-        urls = CorriereIE._extract_urls(webpage)
-        return urls[0] if urls else None
 
 
 class GazzettaIE(RCSIE):
@@ -351,23 +351,20 @@ class GazzettaIE(RCSIE):
         'match_only': True
     }]
 
-    @staticmethod
-    def _extract_urls(webpage):
-        entries = [
-            mobj.group('url')
-            for mobj in re.finditer(r'''(?x)
-            (?:
-                data-frame-src=|
-                <iframe[^\n]+src=
-            )
-            (["\'])
-                (?P<url>(?:https?:)//video\.(?:gazzanet\.)?gazzetta\.it/video-embed/.+?)
-            \1''', webpage)]
-        return RCSIE._sanitize_urls(entries)
 
-    @staticmethod
-    def _extract_url(webpage):
-        urls = GazzettaIE._extract_urls(webpage)
-        return urls[0] if urls else None
+class LeiTvIE(RCSIE):
+    IE_NAME = 'rcs:leitv'
+    _VALID_URL = r'https?://www\.(?P<cdn>leitv\.it)/video/(?P<id>[^/]+?)(?:$|\?|/)'
+    _TESTS = [{
+        'url': 'https://www.leitv.it/video/marmellata-di-ciliegie-fatta-in-casa/',
+        'md5': '618aaabac32152199c1af86784d4d554',
+        'info_dict': {
+            'id': 'marmellata-di-ciliegie-fatta-in-casa',
+            'ext': 'mp4',
+            'title': 'Marmellata di ciliegie fatta in casa',
+            'description': 'md5:d41d8cd98f00b204e9800998ecf8427e',
+            'uploader': 'leitv.it',
+        }
+    }]
 
-# TODO: youreporter, leitv
+# TODO: youreporter
