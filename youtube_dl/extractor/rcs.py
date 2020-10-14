@@ -5,6 +5,7 @@ import re
 
 from .common import InfoExtractor
 from ..utils import (
+    clean_html,
     ExtractorError,
     js_to_json,
     base_url,
@@ -204,25 +205,35 @@ class RCSIE(InfoExtractor):
         if not mobj['cdn']:
             raise ExtractorError('CDN not found in url: %s' % url)
 
-        # for leitv don't use the embed page
-        if mobj['cdn'] != 'leitv.it':
+        # for leitv/youreporter/viaggi don't use the embed page
+        if (mobj['cdn'] not in ['leitv.it', 'youreporter.it']) and (mobj['vid'] == 'video'):
             url = 'https://video.%s/video-embed/%s' % (mobj['cdn'], video_id)
 
         page = self._download_webpage(url, video_id)
 
+        video_data = None
         # look for json video data url
         json = self._search_regex(
-            r'var url = "(//video\.rcs\.it/fragment-includes/video-includes/.+?\.json)";',
+            r'''var url\s*=\s*["']((?:https?:)?//video\.rcs\.it/fragment-includes/video-includes/.+?\.json)["'];''',
             page, video_id, default=None)
         if json:
-            json = 'https:%s' % json
+            if json.startswith('//'):
+                json = 'https:%s' % json
             video_data = self._download_json(json, video_id)
 
         # if url not found, look for json video data directly in the page
         else:
-            video_data = self._parse_json(self._search_regex(
-                r'[\s;]video\s*=\s*({[\s\S]+?})(?:;|,playlist=)', page, video_id),
-                video_id, transform_source=js_to_json)
+            json = self._search_regex(
+                r'[\s;]video\s*=\s*({[\s\S]+?})(?:;|,playlist=)',
+                page, video_id, default=None)
+            if json:
+                video_data = self._parse_json(
+                    json, video_id, transform_source=js_to_json)
+            else:
+                # if no video data found try search for iframes
+                emb = RCSEmbedsIE._extract_url(page)
+                if emb:
+                    return self._real_extract(emb)
 
         if not video_data:
             raise ExtractorError('Video data not found in the page')
@@ -233,7 +244,7 @@ class RCSIE(InfoExtractor):
         return {
             'id': video_id,
             'title': video_data['title'],
-            'description': video_data['description'],
+            'description': video_data['description'] or clean_html(video_data['htmlDescription']),
             'uploader': video_data['provider'] if video_data['provider'] else mobj['cdn'],
             'formats': formats
         }
@@ -256,7 +267,7 @@ class RCSEmbedsIE(RCSIE):
             'id': 'iodonna-0001585037',
             'ext': 'mp4',
             'title': 'Sky Arte racconta Madonna nella serie "Artist to icon"',
-            'description': 'md5:d41d8cd98f00b204e9800998ecf8427e',
+            'description': 'md5:65b09633df9ffee57f48b39e34c9e067',
             'uploader': 'rcs.it',
         }
     }, {
@@ -269,6 +280,10 @@ class RCSEmbedsIE(RCSIE):
 
     @staticmethod
     def _sanitize_urls(urls):
+        # add protocol if missing
+        for i, e in enumerate(urls):
+            if e.startswith('//'):
+                urls[i] = 'https:%s' % e
         # clean iframes urls
         for i, e in enumerate(urls):
             urls[i] = urljoin(base_url(e), url_basename(e))
@@ -283,8 +298,8 @@ class RCSEmbedsIE(RCSIE):
                 data-frame-src=|
                 <iframe[^\n]+src=
             )
-            (["\'])
-                (?P<url>(?:https?:)//video\.
+            (["'])
+                (?P<url>(?:https?:)?//video\.
                     (?:
                         rcs|
                         (?:corriere\w+\.)?corriere|
@@ -302,7 +317,7 @@ class RCSEmbedsIE(RCSIE):
 
 class CorriereIE(RCSIE):
     IE_NAME = 'rcs:corriere'
-    _VALID_URL = r'''(?x)https?://video\.
+    _VALID_URL = r'''(?x)https?://(?P<vid>video|viaggi)\.
                     (?P<cdn>
                     (?:
                         corrieredelmezzogiorno\.|
@@ -310,7 +325,7 @@ class CorriereIE(RCSIE):
                         corrieredibologna\.|
                         corrierefiorentino\.
                     )?
-                    corriere\.it)/(?:.+?)/(?P<id>[^/]+?)(?:$|\?)'''
+                    corriere\.it)/.+?/(?P<id>[^/]+)(?=\?|/$|$)'''
     _TESTS = [{
         'url': 'https://video.corriere.it/sport/formula-1/vettel-guida-ferrari-sf90-mugello-suo-fianco-c-elecrerc-bendato-video-esilarante/b727632a-f9d0-11ea-91b0-38d50a849abb',
         'md5': '0f4ededc202b0f00b6e509d831e2dcda',
@@ -320,6 +335,16 @@ class CorriereIE(RCSIE):
             'title': 'Vettel guida la Ferrari SF90 al Mugello e al suo fianco c\'è Leclerc (bendato): il video è esilarante',
             'description': 'md5:93b51c9161ac8a64fb2f997b054d0152',
             'uploader': 'Corriere Tv',
+        }
+    }, {
+        'url': 'https://viaggi.corriere.it/video/norvegia-il-nuovo-ponte-spettacolare-sopra-la-cascata-di-voringsfossen/',
+        'md5': 'da378e4918d2afbf7d61c35abb948d4c',
+        'info_dict': {
+            'id': '5b7cd134-e2c1-11ea-89b3-b56dd0df2aa2',
+            'ext': 'mp4',
+            'title': 'La nuova spettacolare attrazione in Norvegia: il ponte sopra Vøringsfossen',
+            'description': 'md5:18b35a291f6746c0c8dacd16e5f5f4f8',
+            'uploader': 'DOVE Viaggi',
         }
     }, {
         'url': 'https://video.corriere.it/video-embed/b727632a-f9d0-11ea-91b0-38d50a849abb?player',
@@ -332,7 +357,7 @@ class CorriereIE(RCSIE):
 
 class GazzettaIE(RCSIE):
     IE_NAME = 'rcs:gazzetta'
-    _VALID_URL = r'https?://video\.(?P<cdn>(?:gazzanet\.)?gazzetta\.it)/(?:.+?)/(?P<id>[^/]+?)(?:$|\?)'
+    _VALID_URL = r'https?://(?P<vid>video)\.(?P<cdn>(?:gazzanet\.)?gazzetta\.it)/.+?/(?P<id>[^/]+?)(?:$|\?)'
     _TESTS = [{
         'url': 'https://video.gazzetta.it/video-motogp-catalogna-cadute-dovizioso-vale-rossi/49612410-00ca-11eb-bcd8-30d4253e0140?vclk=Videobar',
         'md5': 'eedc1b5defd18e67383afef51ff7bdf9',
@@ -352,9 +377,13 @@ class GazzettaIE(RCSIE):
     }]
 
 
-class LeiTvIE(RCSIE):
-    IE_NAME = 'rcs:leitv'
-    _VALID_URL = r'https?://www\.(?P<cdn>leitv\.it)/video/(?P<id>[^/]+?)(?:$|\?|/)'
+class RCSVariousIE(RCSIE):
+    IE_NAME = 'rcs:various'
+    _VALID_URL = r'''(?x)https?://www\.
+                    (?P<cdn>
+                        leitv\.it|
+                        youreporter\.it
+                    )/(?:video/)?(?P<id>[^/]+?)(?:$|\?|/)'''
     _TESTS = [{
         'url': 'https://www.leitv.it/video/marmellata-di-ciliegie-fatta-in-casa/',
         'md5': '618aaabac32152199c1af86784d4d554',
@@ -362,9 +391,17 @@ class LeiTvIE(RCSIE):
             'id': 'marmellata-di-ciliegie-fatta-in-casa',
             'ext': 'mp4',
             'title': 'Marmellata di ciliegie fatta in casa',
-            'description': 'md5:d41d8cd98f00b204e9800998ecf8427e',
+            'description': 'md5:89133864d6aad456dbcf6e7a29f86263',
             'uploader': 'leitv.it',
         }
+    }, {
+        'url': 'https://www.youreporter.it/fiume-sesia-3-ottobre-2020/',
+        'md5': '8dccd436b47a830bab5b4a88232f391a',
+        'info_dict': {
+            'id': 'fiume-sesia-3-ottobre-2020',
+            'ext': 'mp4',
+            'title': 'Fiume Sesia 3 ottobre 2020',
+            'description': 'md5:0070eef1cc884d13c970a4125063de55',
+            'uploader': 'youreporter.it',
+        }
     }]
-
-# TODO: youreporter

@@ -3214,7 +3214,7 @@ class GenericIE(InfoExtractor):
             return self.playlist_from_matches(
                 zype_urls, video_id, video_title, ie=ZypeIE.ie_key())
 
-        # Look for RCS media group (RCS, Gazzetta and Corriere) embeds
+        # Look for RCS media group embeds
         rcs_urls = RCSEmbedsIE._extract_urls(webpage)
         if rcs_urls:
             return self.playlist_from_matches(
