@@ -32,8 +32,7 @@ class SkyItaliaBaseIE(InfoExtractor):
         data_url = data_url.replace('{token}', token)
         video_data = self._parse_json(
             self._download_webpage(data_url, video_id),
-            video_id
-        )
+            video_id)
 
         formats = []
         for q, r in self._RES.items():
@@ -48,11 +47,13 @@ class SkyItaliaBaseIE(InfoExtractor):
             })
 
         self._sort_formats(formats)
+        title = video_data.get('title')
+        thumb = video_data.get('thumb')
 
         return {
             'id': video_id,
-            'title': video_data['title'],
-            'thumbnail': video_data['thumb'],
+            'title': title,
+            'thumbnail': thumb,
             'formats': formats
         }
 
@@ -85,7 +86,7 @@ class SkyVideoItIE(SkyItaliaBaseIE):
 class SkySportItIE(SkyItaliaBaseIE):
     IE_NAME = 'sport.sky.it'
     _VALID_URL = r'https?://sport\.sky\.it/(?P<id>.+?)$'
-    _TESTS = [{
+    _TEST = {
         'url': 'https://sport.sky.it/motogp/2020/09/18/motogp-gp-emilia-romagna-misano-2020-prove-libere-diretta',
         'md5': '9c03b590b06e5952d8051f0e02b0feca',
         'info_dict': {
@@ -94,13 +95,13 @@ class SkySportItIE(SkyItaliaBaseIE):
             'title': 'MotoGP, GP Emilia Romagna: gli highlights delle prove libere',
             'thumbnail': 'https://videoplatform.sky.it/thumbnail/2020/09/18/1600441214452_hl-libere-motogp-misano2_5602634_thumbnail_1.jpg',
         }
-    }]
+    }
 
 
 class SkyTg24ItIE(SkyItaliaBaseIE):
     IE_NAME = 'tg24.sky.it'
     _VALID_URL = r'https?://tg24\.sky\.it/(?P<id>.+?)$'
-    _TESTS = [{
+    _TEST = {
         'url': 'https://tg24.sky.it/salute-e-benessere/2020/09/18/coronavirus-vaccino-ue-sanofi',
         'md5': 'caa25e62dadb529bc5e0b078da99f854',
         'info_dict': {
@@ -109,13 +110,13 @@ class SkyTg24ItIE(SkyItaliaBaseIE):
             'title': 'Covid-19, al Buzzi di Milano tamponi drive-in per studenti',
             'thumbnail': 'https://videoplatform.sky.it/thumbnail/2020/09/17/1600351405841_error-coronavirus-al-buzzi-di-milano-tamponi_thumbnail_1.jpg',
         }
-    }]
+    }
 
 
 class SkyArteItIE(SkyItaliaBaseIE):
     IE_NAME = 'arte.sky.it'
     _VALID_URL = r'https?://arte\.sky\.it/video/(?P<id>.+?)$'
-    _TESTS = [{
+    _TEST = {
         'url': 'https://arte.sky.it/video/federico-fellini-maestri-cinema/',
         'md5': '2f22513a89f45142f2746f878d690647',
         'info_dict': {
@@ -124,5 +125,5 @@ class SkyArteItIE(SkyItaliaBaseIE):
             'title': 'I maestri del cinema Federico Felini',
             'thumbnail': 'https://videoplatform.sky.it/thumbnail/2020/09/03/1599146747305_i-maestri-del-cinema-federico-felini_thumbnail_1.jpg',
         }
-    }]
+    }
     _TOKEN = 'LWk29hfiU39NNdq87ePeRach3nzTSV20o0lTv2001Cd'
